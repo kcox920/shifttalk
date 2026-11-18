@@ -5,7 +5,7 @@
 - Press Right Shift while recording                         -> stop, transcribe, type.
 Everything runs locally (faster-whisper). Text is typed into the focused window
 through a virtual keyboard (uinput), so it works in Firefox, Chrome, anything.
-Requires: python3-evdev, faster-whisper, pw-record, `input` group membership.
+Requires: python3-evdev, faster-whisper, pw-record (PipeWire) or parecord (PulseAudio), `input` group membership.
 Prints "PID n" and "STATE x" lines on stdout for the tray utility.
 """
 import asyncio
@@ -47,8 +47,23 @@ def set_state(s):
     say(f"STATE {'ready' if s == 'idle' else s}")
 
 
+def _use_pipewire():
+    """PipeWire tools only work when a PipeWire server is running; plain
+    PulseAudio systems (e.g. older Ubuntu) need parecord/paplay instead."""
+    try:
+        out = subprocess.run(["pactl", "info"], capture_output=True, text=True,
+                             timeout=5).stdout
+        return "pipewire" in out.lower()
+    except Exception:  # noqa: BLE001
+        return True
+
+
+PIPEWIRE = _use_pipewire()
+
+
 def beep(path):
-    subprocess.Popen(["pw-play", path], stdout=subprocess.DEVNULL,
+    player = "pw-play" if PIPEWIRE else "paplay"
+    subprocess.Popen([player, path], stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)
 
 
@@ -128,10 +143,14 @@ def start_recording():
     global rec_proc, rec_path
     fd, rec_path = tempfile.mkstemp(prefix="dictation-", suffix=".wav")
     os.close(fd)
-    rec_proc = subprocess.Popen(
-        ["pw-record", "--rate", "16000", "--channels", "1",
-         "--format", "s16", rec_path],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if PIPEWIRE:
+        cmd = ["pw-record", "--rate", "16000", "--channels", "1",
+               "--format", "s16", rec_path]
+    else:
+        cmd = ["parecord", "--rate=16000", "--channels=1",
+               "--format=s16le", "--file-format=wav", rec_path]
+    rec_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
     beep(SND_START)
     set_state("recording")
 
