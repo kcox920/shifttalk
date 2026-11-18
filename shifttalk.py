@@ -49,22 +49,28 @@ def set_state(s):
     say(f"STATE {'ready' if s == 'idle' else s}")
 
 
-def _use_pipewire():
+_pipewire = None
+
+
+def use_pipewire():
     """PipeWire tools only work when a PipeWire server is running; plain
-    PulseAudio systems (e.g. older Ubuntu) need parecord/paplay instead."""
-    try:
-        out = subprocess.run(["pactl", "info"], capture_output=True, text=True,
-                             timeout=5).stdout
-        return "pipewire" in out.lower()
-    except Exception:  # noqa: BLE001
-        return True
-
-
-PIPEWIRE = _use_pipewire()
+    PulseAudio systems (e.g. older Ubuntu) need parecord/paplay instead.
+    Checked lazily and only cached on success, so starting before the audio
+    server is up (early at login) cannot lock in the wrong backend."""
+    global _pipewire
+    if _pipewire is None:
+        try:
+            out = subprocess.run(["pactl", "info"], capture_output=True,
+                                 text=True, timeout=5)
+            if out.returncode == 0 and "Server Name" in out.stdout:
+                _pipewire = "pipewire" in out.stdout.lower()
+        except Exception:  # noqa: BLE001
+            pass
+    return bool(_pipewire)
 
 
 def beep(path):
-    player = "pw-play" if PIPEWIRE else "paplay"
+    player = "pw-play" if use_pipewire() else "paplay"
     subprocess.Popen([player, path], stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)
 
@@ -146,7 +152,7 @@ def start_recording():
     fd, rec_path = tempfile.mkstemp(prefix="dictation-", suffix=".wav")
     os.close(fd)
     mic = stconfig.effective_source()   # None = system default
-    if PIPEWIRE:
+    if use_pipewire():
         cmd = ["pw-record", "--rate", "16000", "--channels", "1",
                "--format", "s16"]
         if mic:
