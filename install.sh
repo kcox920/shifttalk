@@ -5,12 +5,26 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "==> [1/6] System packages (asks for your sudo password)..."
-sudo apt install -y python3-venv python3-evdev python3-gi \
-    gir1.2-ayatanaappindicator3-0.1 pipewire-bin
+echo "==> [1/6] System packages..."
+NEED=()
+python3 -c "import venv, ensurepip" 2>/dev/null || NEED+=(python3-venv)
+python3 -c "import gi; gi.require_version('AyatanaAppIndicator3','0.1')" 2>/dev/null \
+    || NEED+=(python3-gi gir1.2-ayatanaappindicator3-0.1)
+command -v pactl >/dev/null || NEED+=(pulseaudio-utils)
+command -v pw-record >/dev/null || command -v parecord >/dev/null || NEED+=(pipewire-bin)
+if [ ${#NEED[@]} -gt 0 ]; then
+    echo "    installing: ${NEED[*]} (asks for your sudo password)"
+    sudo apt install -y "${NEED[@]}"
+else
+    echo "    all present, no sudo needed"
+fi
 
-echo "==> [2/6] Keyboard access (input group)..."
-sudo usermod -aG input "$USER"
+echo "==> [2/6] Keyboard access..."
+if [ -w /dev/uinput ] && [ -r /dev/input/event0 ]; then
+    echo "    already have access (e.g. via plugdev), skipping input group"
+else
+    sudo usermod -aG input "$USER"
+fi
 
 echo "==> [3/6] Stopping any running copy..."
 pkill -f "$DIR/tray.py" 2>/dev/null || true
@@ -19,8 +33,11 @@ rm -f "$HOME/.config/autostart/dictation.desktop" \
       "$HOME/.config/autostart/dictation-tray.desktop"
 
 echo "==> [4/6] Python environment + speech engine (faster-whisper)..."
-python3 -m venv --system-site-packages "$DIR/venv"
+python3 -m venv --clear --system-site-packages "$DIR/venv"
 "$DIR/venv/bin/pip" install --quiet --upgrade pip faster-whisper
+# python3-evdev from apt if present, otherwise from pip
+"$DIR/venv/bin/python" -c "import evdev" 2>/dev/null \
+    || "$DIR/venv/bin/pip" install --quiet evdev
 
 echo "==> [5/6] Downloading the speech model (one time, ~500 MB)..."
 "$DIR/venv/bin/python" -c \
@@ -39,12 +56,13 @@ Terminal=false
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=15
 EOF
-nohup /usr/bin/python3 "$DIR/tray.py" >/dev/null 2>&1 &
+nohup /usr/bin/python3 "$DIR/tray.py" --autostart >/dev/null 2>&1 &
 disown
 
 echo
 echo "Done. A microphone icon should be in the top bar."
-echo "Click it > 'Start dictation' (password prompt this one time; after your"
-echo "next reboot/login it starts by itself)."
+echo "It starts dictation by itself; if it shows grey, click it > 'Start dictation'"
+echo "(a password prompt appears once if your user lacks keyboard access yet)."
+echo "Pick a microphone from the same menu. It auto-starts 15 s after each login."
 echo "Then click in any text field, hold Right Shift for half a second, speak,"
 echo "and tap Right Shift to stop. The text gets typed in."
