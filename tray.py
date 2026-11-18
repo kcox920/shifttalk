@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ShiftTalk: GNOME top-bar utility to start/stop Right-Shift voice dictation.
 
-Menu: status line, Start/Stop toggle, Quit.
+Menu: status line, Start/Stop toggle, Microphone picker, Quit.
 Grey struck-through mic = stopped; bright red = running; red disc = recording.
 Launched with --autostart (at login) it also starts dictation automatically,
 provided the `input` group is active; otherwise it waits for you to click Start
@@ -13,6 +13,8 @@ import signal
 import subprocess
 import sys
 import threading
+
+import stconfig
 
 import gi
 
@@ -68,12 +70,46 @@ class Tray:
         self.toggle_item.connect("activate", self.on_toggle)
         quit_item = Gtk.MenuItem(label="Quit")
         quit_item.connect("activate", self.on_quit)
-        for item in (self.status_item, self.toggle_item,
+        self.mic_item = Gtk.MenuItem(label="Microphone")
+        self.mic_menu = Gtk.Menu()
+        self.mic_item.set_submenu(self.mic_menu)
+        self.mic_item.connect("select", lambda _i: self.refresh_mics())
+        self.mic_menu.connect("show", lambda _m: self.refresh_mics())
+        self.refresh_mics()
+        for item in (self.status_item, self.toggle_item, self.mic_item,
                      Gtk.SeparatorMenuItem(), quit_item):
             menu.append(item)
         menu.show_all()
         self.ind.set_menu(menu)
         self.set_state("off")
+
+    def refresh_mics(self):
+        """Rebuild the Microphone submenu from the inputs present right now."""
+        for child in self.mic_menu.get_children():
+            self.mic_menu.remove(child)
+        mics = stconfig.list_microphones()
+        current = stconfig.effective_source()
+        group = None
+        entries = []
+        if len(mics) > 1:
+            entries.append((None, "System default"))
+        entries += mics
+        if not entries:
+            none = Gtk.MenuItem(label="No microphone found")
+            none.set_sensitive(False)
+            self.mic_menu.append(none)
+        for name, label in entries:
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(group, label)
+            group = group or item
+            # one mic: it is always the selection; several: the saved one
+            item.set_active(name == current if len(mics) > 1 else True)
+            item.connect("toggled", self.on_mic_toggled, name)
+            self.mic_menu.append(item)
+        self.mic_menu.show_all()
+
+    def on_mic_toggled(self, item, name):
+        if item.get_active():
+            stconfig.save_source(name)
 
     def set_state(self, state, detail=""):
         icon, text = {

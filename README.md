@@ -22,6 +22,11 @@ launches it. Safe to re-run.
 - Click in a text field. **Hold Right Shift for 0.5 s** (chime), speak.
 - **Tap Right Shift** to stop (chime). After a second or two the text is typed
   in (done chime).
+- **Choose a microphone:** top-bar mic icon > **Microphone**. It lists the inputs
+  present right now (just one entry if there is only one); with several you also get
+  **System default**. The choice is saved in `~/.config/shifttalk/config.json` and
+  applies to the next recording, no restart. If the saved mic is unplugged it falls
+  back to the system default.
 - Grey struck-through mic = stopped. Red mic = running. Red disc = recording.
 
 Right Shift used normally (for capital letters) is unaffected.
@@ -31,6 +36,7 @@ Right Shift used normally (for capital letters) is unaffected.
 | File | Purpose |
 |------|---------|
 | `shifttalk.py` | Daemon: watches Right Shift, records, transcribes, types. |
+| `stconfig.py` | Shared settings + microphone discovery (tray and daemon). |
 | `tray.py` | GNOME top-bar utility (start/stop/status). |
 | `icons/` | Tray icons (stopped / running / recording). |
 | `install.sh` | One-shot installer. |

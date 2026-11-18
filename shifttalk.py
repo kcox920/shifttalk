@@ -17,6 +17,8 @@ import threading
 import unicodedata
 
 import evdev
+
+import stconfig
 from evdev import UInput, ecodes as e
 
 HOTKEY = e.KEY_RIGHTSHIFT
@@ -143,12 +145,19 @@ def start_recording():
     global rec_proc, rec_path
     fd, rec_path = tempfile.mkstemp(prefix="dictation-", suffix=".wav")
     os.close(fd)
+    mic = stconfig.effective_source()   # None = system default
     if PIPEWIRE:
         cmd = ["pw-record", "--rate", "16000", "--channels", "1",
-               "--format", "s16", rec_path]
+               "--format", "s16"]
+        if mic:
+            cmd += ["--target", mic]
+        cmd.append(rec_path)
     else:
         cmd = ["parecord", "--rate=16000", "--channels=1",
-               "--format=s16le", "--file-format=wav", rec_path]
+               "--format=s16le", "--file-format=wav"]
+        if mic:
+            cmd.append(f"--device={mic}")
+        cmd.append(rec_path)
     rec_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
     beep(SND_START)
@@ -262,4 +271,5 @@ async def main():
     await asyncio.gather(*(watch(d, loop) for d in devices))
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
