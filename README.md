@@ -39,7 +39,7 @@ Right Shift used normally (for capital letters) is unaffected.
 | `shifttalk.py` | Daemon: watches Right Shift, records, transcribes, types. |
 | `stconfig.py` | Shared settings + microphone discovery (tray and daemon). |
 | `tray.py` | GNOME top-bar utility (start/stop/status). |
-| `icons/` | Tray icons (stopped / running / recording). |
+| `icons/` | Tray icons: `shifttalk-off-grey`, `shifttalk-on-green`, `shifttalk-active-red`. (Renamed from dictation-*.svg because GNOME caches top-bar icons by filename.) |
 | `install.sh` | One-shot installer. |
 | `restart.sh` | Restart the tray from a desktop terminal. |
 

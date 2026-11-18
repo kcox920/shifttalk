@@ -26,9 +26,9 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 PYTHON = os.path.join(BASE, "venv", "bin", "python")
 DAEMON = os.path.join(BASE, "shifttalk.py")
 ICON_DIR = os.path.join(BASE, "icons")
-ICON_OFF = os.path.join(ICON_DIR, "dictation-off.svg")      # grey, struck through
-ICON_READY = os.path.join(ICON_DIR, "dictation-ready.svg")   # green mic (running, idle)
-ICON_LISTENING = os.path.join(ICON_DIR, "dictation-listening.svg")  # very bright red disc (recording / transcribing)
+ICON_OFF = os.path.join(ICON_DIR, "shifttalk-off-grey.svg")      # grey, struck through
+ICON_READY = os.path.join(ICON_DIR, "shifttalk-on-green.svg")   # green mic (running, idle)
+ICON_LISTENING = os.path.join(ICON_DIR, "shifttalk-active-red.svg")  # very bright red disc (recording / transcribing)
 PASS_ENV = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "WAYLAND_DISPLAY",
             "DISPLAY", "XAUTHORITY", "XDG_SESSION_TYPE", "HOME", "PATH")
 
