@@ -27,7 +27,8 @@ launches it. Safe to re-run.
   **System default**. The choice is saved in `~/.config/shifttalk/config.json` and
   applies to the next recording, no restart. If the saved mic is unplugged it falls
   back to the system default.
-- Grey struck-through mic = stopped. Red mic = running. Red disc = recording.
+- Grey struck-through mic = stopped. Green mic = running, waiting. Very bright red
+  disc = recording or transcribing; back to green once the text is typed.
 
 Right Shift used normally (for capital letters) is unaffected.
 

@@ -2,7 +2,7 @@
 """ShiftTalk: GNOME top-bar utility to start/stop Right-Shift voice dictation.
 
 Menu: status line, Start/Stop toggle, Microphone picker, Quit.
-Grey struck-through mic = stopped; bright red = running; red disc = recording.
+Grey struck-through mic = stopped; green = running; very bright red = recording/transcribing.
 Launched with --autostart (at login) it also starts dictation automatically,
 provided the `input` group is active; otherwise it waits for you to click Start
 (which then asks for your password via pkexec).
@@ -27,8 +27,8 @@ PYTHON = os.path.join(BASE, "venv", "bin", "python")
 DAEMON = os.path.join(BASE, "shifttalk.py")
 ICON_DIR = os.path.join(BASE, "icons")
 ICON_OFF = os.path.join(ICON_DIR, "dictation-off.svg")      # grey, struck through
-ICON_READY = os.path.join(ICON_DIR, "dictation-ready.svg")   # bright red mic
-ICON_LISTENING = os.path.join(ICON_DIR, "dictation-listening.svg")  # red disc
+ICON_READY = os.path.join(ICON_DIR, "dictation-ready.svg")   # green mic (running, idle)
+ICON_LISTENING = os.path.join(ICON_DIR, "dictation-listening.svg")  # very bright red disc (recording / transcribing)
 PASS_ENV = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "WAYLAND_DISPLAY",
             "DISPLAY", "XAUTHORITY", "XDG_SESSION_TYPE", "HOME", "PATH")
 
@@ -115,10 +115,10 @@ class Tray:
         icon, text = {
             "off": (ICON_OFF, "Stopped"),
             "starting": (ICON_OFF, "Starting..."),
-            "loading": (ICON_READY, "Loading speech model..."),
+            "loading": (ICON_OFF, "Loading speech model..."),
             "ready": (ICON_READY, "Running: hold Right Shift to dictate"),
             "recording": (ICON_LISTENING, "Recording... tap Right Shift to stop"),
-            "busy": (ICON_READY, "Transcribing..."),
+            "busy": (ICON_LISTENING, "Transcribing..."),
             "error": (ICON_OFF, f"Error: {detail}"),
         }.get(state, (ICON_READY, state))
         self.ind.set_icon_full(icon, text)
