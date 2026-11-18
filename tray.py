@@ -32,10 +32,15 @@ PASS_ENV = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "WAYLAND_DISPLAY",
 
 
 def has_input_group():
+    """True if we can already read the keyboard and create a virtual one
+    (via the `input` group, or e.g. `plugdev` on some systems)."""
     try:
-        return grp.getgrnam("input").gr_gid in os.getgroups()
+        if grp.getgrnam("input").gr_gid in os.getgroups():
+            return True
     except KeyError:
-        return False
+        pass
+    return os.access("/dev/uinput", os.R_OK | os.W_OK) and os.access(
+        "/dev/input/event0", os.R_OK)
 
 
 def build_command():
