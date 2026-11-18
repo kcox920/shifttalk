@@ -37,7 +37,7 @@ Exec=/usr/bin/python3 $DIR/tray.py --autostart
 Icon=audio-input-microphone
 Terminal=false
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=8
+X-GNOME-Autostart-Delay=15
 EOF
 nohup /usr/bin/python3 "$DIR/tray.py" >/dev/null 2>&1 &
 disown
