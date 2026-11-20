@@ -11,17 +11,13 @@ CONFIG_PATH = os.path.join(
 
 def load_source():
     """Saved microphone (pulse/pipewire source name), or None = system default."""
-    try:
-        with open(CONFIG_PATH) as f:
-            return json.load(f).get("source") or None
-    except (OSError, ValueError):
-        return None
+    return _read_config().get("source") or None
 
 
 def save_source(name):
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    with open(CONFIG_PATH, "w") as f:
-        json.dump({"source": name}, f)
+    cfg = _read_config()
+    cfg["source"] = name
+    _write_config(cfg)
 
 
 def _pactl(*args):
@@ -63,3 +59,77 @@ def effective_source():
     if saved and any(n == saved for n, _ in list_microphones()):
         return saved
     return None
+
+
+# ---------- speech engine: offline (faster-whisper) or online ----------
+ENGINES = [
+    ("offline", "Offline (on this computer)"),
+    ("openai", "Online (OpenAI)"),
+]
+KEY_ENV = {"openai": "OPENAI_API_KEY"}
+
+
+def _read_config():
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_config(cfg):
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f)
+
+
+def load_engine():
+    eng = _read_config().get("engine")
+    return eng if eng in dict(ENGINES) else "offline"
+
+
+def save_engine(engine):
+    cfg = _read_config()
+    cfg["engine"] = engine
+    _write_config(cfg)
+
+
+def api_key(engine):
+    """API key for an online engine, or None. Never stored by ShiftTalk: read
+    from the environment, then ~/.config/shifttalk/<engine>.key, then the
+    `export NAME=...` line in ~/.bashrc (so it also works when started from the
+    GNOME autostart, which does not read .bashrc)."""
+    name = KEY_ENV.get(engine)
+    if not name:
+        return None
+    if os.environ.get(name):
+        return os.environ[name].strip()
+    for path in (os.path.join(os.path.dirname(CONFIG_PATH), engine + ".key"),):
+        try:
+            with open(path) as f:
+                v = f.read().strip()
+            if v:
+                return v
+        except OSError:
+            pass
+    try:
+        with open(os.path.expanduser("~/.bashrc")) as f:
+            for line in f:
+                m = re.match(r"\s*export\s+" + name + r"=(.*)", line)
+                if m:
+                    v = m.group(1).strip().strip("'\"")
+                    if v:
+                        return v
+    except OSError:
+        pass
+    return None
+
+
+def engine_available(engine):
+    return engine == "offline" or bool(api_key(engine))
+
+
+def effective_engine():
+    """Saved engine if usable right now, else offline."""
+    eng = load_engine()
+    return eng if engine_available(eng) else "offline"

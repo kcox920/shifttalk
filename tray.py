@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ShiftTalk: GNOME top-bar utility to start/stop Right-Shift voice dictation.
 
-Menu: status line, Start/Stop toggle, Microphone picker, Quit.
+Menu: status line, Start/Stop toggle, Microphone picker, Speech engine picker, Quit.
 Grey struck-through mic = stopped; green = running; very bright red = recording/transcribing.
 Launched with --autostart (at login) it also starts dictation automatically,
 provided the `input` group is active; otherwise it waits for you to click Start
@@ -76,7 +76,14 @@ class Tray:
         self.mic_item.connect("select", lambda _i: self.refresh_mics())
         self.mic_menu.connect("show", lambda _m: self.refresh_mics())
         self.refresh_mics()
+        self.engine_item = Gtk.MenuItem(label="Speech engine")
+        self.engine_menu = Gtk.Menu()
+        self.engine_item.set_submenu(self.engine_menu)
+        self.engine_item.connect("select", lambda _i: self.refresh_engines())
+        self.engine_menu.connect("show", lambda _m: self.refresh_engines())
+        self.refresh_engines()
         for item in (self.status_item, self.toggle_item, self.mic_item,
+                     self.engine_item,
                      Gtk.SeparatorMenuItem(), quit_item):
             menu.append(item)
         menu.show_all()
@@ -107,6 +114,36 @@ class Tray:
             self.mic_menu.append(item)
         self.mic_menu.show_all()
 
+    def refresh_engines(self):
+        """Offline always; online entries are greyed out until an API key exists."""
+        for child in self.engine_menu.get_children():
+            self.engine_menu.remove(child)
+        current = stconfig.effective_engine()
+        group = None
+        for eng, label in stconfig.ENGINES:
+            ok = stconfig.engine_available(eng)
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(
+                group, label if ok else f"{label} (no API key)")
+            group = group or item
+            item.set_sensitive(ok)
+            item.set_active(eng == current)
+            item.connect("toggled", self.on_engine_toggled, eng)
+            self.engine_menu.append(item)
+        self.engine_menu.show_all()
+
+    def on_engine_toggled(self, item, eng):
+        if item.get_active():
+            stconfig.save_engine(eng)
+
+    def show_info(self, text):
+        """Temporary status-line message from the daemon (e.g. online fallback)."""
+        self.status_item.set_label(text)
+        GLib.timeout_add_seconds(10, self.restore_status)
+
+    def restore_status(self):
+        self.set_state(self.state)
+        return False
+
     def on_mic_toggled(self, item, name):
         if item.get_active():
             stconfig.save_source(name)
@@ -121,6 +158,7 @@ class Tray:
             "busy": (ICON_LISTENING, "Transcribing..."),
             "error": (ICON_OFF, f"Error: {detail}"),
         }.get(state, (ICON_READY, state))
+        self.state = state
         self.ind.set_icon_full(icon, text)
         self.status_item.set_label(text)
         running = state not in ("off", "error")
@@ -144,6 +182,8 @@ class Tray:
                 GLib.idle_add(self.on_pid, proc, int(line[4:]))
             elif line.startswith("STATE "):
                 GLib.idle_add(self.on_daemon_state, proc, line[6:])
+            elif line.startswith("INFO "):
+                GLib.idle_add(self.show_info, line[5:])
         err = proc.stderr.read().strip().splitlines()
         proc.wait()
         GLib.idle_add(self.on_daemon_exit, proc, proc.returncode,

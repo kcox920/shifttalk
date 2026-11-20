@@ -13,6 +13,7 @@ import os
 import signal
 import subprocess
 import tempfile
+import time
 import threading
 import unicodedata
 
@@ -29,6 +30,11 @@ SND_START = f"{SOUND_DIR}/device-added.oga"
 SND_STOP = f"{SOUND_DIR}/device-removed.oga"
 SND_DONE = f"{SOUND_DIR}/complete.oga"
 KEY_DELAY = 0.004
+TAIL_GRACE = 0.3        # keep recording this long after the stop tap (mic buffers lag)
+PAD_SECONDS = 0.4       # silence added before/after audio: Whisper drops abrupt first words
+ONLINE_MODEL = "gpt-4o-mini-transcribe"
+ONLINE_URL = "https://api.openai.com/v1/audio/transcriptions"
+ONLINE_TIMEOUT = 25
 
 state = "loading"          # loading | idle | recording | busy
 timer = None
@@ -147,7 +153,10 @@ def load_model():
         os._exit(2)
 
 
-def start_recording():
+def spawn_recorder():
+    """Start the recorder process. Called on Right Shift *press* (before the hold
+    time is up) so the mic hardware is already delivering audio when the chime
+    sounds; if the key is released early the recording is thrown away."""
     global rec_proc, rec_path
     fd, rec_path = tempfile.mkstemp(prefix="dictation-", suffix=".wav")
     os.close(fd)
@@ -166,8 +175,23 @@ def start_recording():
         cmd.append(rec_path)
     rec_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
+
+
+def start_recording():
+    """Spawn (if not already armed) and announce: chime + red icon."""
+    if rec_proc is None:
+        spawn_recorder()
     beep(SND_START)
     set_state("recording")
+
+
+def discard_recording():
+    path = stop_recording()
+    if path:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def stop_recording():
@@ -193,12 +217,87 @@ def load_audio(path):
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
+def pad_audio(a):
+    import numpy as np
+    pad = np.zeros(int(16000 * PAD_SECONDS), dtype=np.float32)
+    return np.concatenate([pad, a, pad])
+
+
+def wav_bytes(a):
+    import io
+    import wave
+    import numpy as np
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes((np.clip(a, -1, 1) * 32767).astype(np.int16).tobytes())
+    return buf.getvalue()
+
+
+def transcribe_online(a):
+    """OpenAI speech-to-text. Raises on any failure so the caller can fall back."""
+    import json
+    import urllib.request
+    key = stconfig.api_key("openai")
+    if not key:
+        raise RuntimeError("no OpenAI API key")
+    boundary = "----shifttalk" + os.urandom(8).hex()
+    parts = []
+    for name, val in (("model", ONLINE_MODEL), ("language", "en"),
+                      ("response_format", "json")):
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; '
+                     f'name="{name}"\r\n\r\n{val}\r\n'.encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+                 f'filename="dictation.wav"\r\nContent-Type: audio/wav\r\n\r\n'.encode())
+    parts.append(wav_bytes(a))
+    parts.append(f"\r\n--{boundary}--\r\n".encode())
+    req = urllib.request.Request(
+        ONLINE_URL, data=b"".join(parts),
+        headers={"Authorization": f"Bearer {key}",
+                 "Content-Type": f"multipart/form-data; boundary={boundary}"})
+    with urllib.request.urlopen(req, timeout=ONLINE_TIMEOUT) as r:
+        return json.load(r).get("text", "").strip()
+
+
+def online_error(ex):
+    """Short human reason for an online failure (never includes the key)."""
+    import json
+    import urllib.error
+    if isinstance(ex, urllib.error.HTTPError):
+        try:
+            code = json.loads(ex.read().decode()).get("error", {}).get("code", "")
+        except Exception:  # noqa: BLE001
+            code = ""
+        return {"credit_balance_exhausted": "OpenAI account has no credits",
+                "insufficient_quota": "OpenAI account has no credits",
+                "invalid_api_key": "invalid OpenAI API key"}.get(
+                    code, f"HTTP {ex.code}")
+    if isinstance(ex, urllib.error.URLError):
+        return "no network"
+    return str(ex) or type(ex).__name__
+
+
+def transcribe_offline(a):
+    model_ready.wait()
+    segments, _ = model.transcribe(a, language="en", beam_size=3, vad_filter=True)
+    return " ".join(s.text.strip() for s in segments).strip()
+
+
 def transcribe_and_type(path, loop):
     try:
-        model_ready.wait()
-        segments, _ = model.transcribe(load_audio(path), language="en",
-                                       beam_size=3, vad_filter=True)
-        text = " ".join(s.text.strip() for s in segments).strip()
+        time.sleep(TAIL_GRACE)           # let the mic buffer drain, then stop
+        path = stop_recording() or path
+        audio = pad_audio(load_audio(path))
+        text = None
+        if stconfig.effective_engine() == "openai":
+            try:
+                text = transcribe_online(audio)
+            except Exception as ex:  # noqa: BLE001
+                say(f"INFO Online failed ({online_error(ex)}); used offline")
+        if text is None:
+            text = transcribe_offline(audio)
         if text:
             type_text(text)
             beep(SND_DONE)
@@ -207,7 +306,7 @@ def transcribe_and_type(path, loop):
     finally:
         try:
             os.unlink(path)
-        except OSError:
+        except (OSError, TypeError):
             pass
         loop.call_soon_threadsafe(set_state, "idle")
 
@@ -223,29 +322,38 @@ def cancel_timer():
 def fire_start():
     global timer
     timer = None
-    if state == "idle" or state == "loading":
+    if state in ("idle", "loading"):
         start_recording()
+
+
+def abort_arming():
+    """Right Shift released (or another key pressed) before the hold time."""
+    cancel_timer()
+    if state in ("idle", "loading"):
+        discard_recording()
 
 
 async def watch(dev, loop):
     global timer
     async for ev in dev.async_read_loop():
-        if ev.type != e.EV_KEY:
+        if ev.type != e.EV_KEY or ev.value == 2:
             continue
         if ev.code == HOTKEY:
             if ev.value == 1:
                 if state == "recording":
-                    path = stop_recording()
                     beep(SND_STOP)
                     set_state("busy")
-                    loop.run_in_executor(None, transcribe_and_type, path, loop)
+                    # recorder keeps running for TAIL_GRACE inside the worker
+                    loop.run_in_executor(None, transcribe_and_type, rec_path, loop)
                 elif state in ("idle", "loading"):
                     cancel_timer()
+                    if rec_proc is None:
+                        spawn_recorder()
                     timer = loop.call_later(HOLD_SECONDS, fire_start)
             elif ev.value == 0:
-                cancel_timer()
+                abort_arming()
         elif ev.value == 1:
-            cancel_timer()
+            abort_arming()
 
 
 def cleanup(*_):

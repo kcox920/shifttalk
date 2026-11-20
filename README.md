@@ -2,8 +2,8 @@
 
 Hold **Right Shift**, talk, tap Right Shift, and your words are typed into
 whatever text field has focus (Firefox, Chrome, a terminal, anything).
-Speech recognition runs locally with [faster-whisper](https://github.com/SYSTRAN/faster-whisper);
-no audio leaves your machine. A microphone icon in the GNOME top bar starts,
+Speech recognition runs locally by default with [faster-whisper](https://github.com/SYSTRAN/faster-whisper);
+no audio leaves your machine unless you pick the **Online** engine (see below). A microphone icon in the GNOME top bar starts,
 stops and shows status.
 
 ## Install
@@ -27,6 +27,15 @@ launches it. Safe to re-run.
   **System default**. The choice is saved in `~/.config/shifttalk/config.json` and
   applies to the next recording, no restart. If the saved mic is unplugged it falls
   back to the system default.
+- **Speech engine:** top-bar mic icon > **Speech engine**.
+  - **Offline** (default): faster-whisper on this computer. Private, free.
+  - **Online (OpenAI)**: sends each recording to OpenAI (`gpt-4o-mini-transcribe`).
+    Faster and more accurate, but your audio leaves the machine and it costs API credit.
+    The key is never stored by ShiftTalk: it uses `$OPENAI_API_KEY`, else
+    `~/.config/shifttalk/openai.key`, else the `export OPENAI_API_KEY=` line in `~/.bashrc`
+    (the last one so it works from the GNOME autostart). With no key the entry is greyed out.
+  - If an online request fails (no network, no credits, bad key) the recording is
+    transcribed offline instead and the menu's status line says why for 10 s.
 - Grey struck-through mic = stopped. Green mic = running, waiting. Very bright red
   disc = recording or transcribing; back to green once the text is typed.
 
@@ -42,6 +51,14 @@ Right Shift used normally (for capital letters) is unaffected.
 | `icons/` | Tray icons: `shifttalk-off-grey`, `shifttalk-on-green`, `shifttalk-active-red`. (Renamed from dictation-*.svg because GNOME caches top-bar icons by filename.) |
 | `install.sh` | One-shot installer. |
 | `restart.sh` | Restart the tray from a desktop terminal. |
+
+## Audio timing (why the first words used to go missing)
+
+Hardware mics take about 0.25 s to start delivering audio after the recorder opens,
+and recording used to start only after the 0.5 s hold, so the first words fell in a gap.
+Now recording starts at the Right Shift *press* (thrown away if you let go before the
+chime, or hit another key), the recorder keeps running 0.3 s after the stop tap, and
+0.4 s of silence is padded around the clip because Whisper drops abrupt first words.
 
 ## Requirements and caveats
 
