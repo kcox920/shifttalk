@@ -73,15 +73,18 @@ class Tray:
         self.mic_item = Gtk.MenuItem(label="Microphone")
         self.mic_menu = Gtk.Menu()
         self.mic_item.set_submenu(self.mic_menu)
-        self.mic_item.connect("select", lambda _i: self.refresh_mics())
-        self.mic_menu.connect("show", lambda _m: self.refresh_mics())
+        self._updating = False       # True while we change items in place
+        self._mic_sig = None
         self.refresh_mics()
         self.engine_item = Gtk.MenuItem(label="Speech engine")
         self.engine_menu = Gtk.Menu()
         self.engine_item.set_submenu(self.engine_menu)
-        self.engine_item.connect("select", lambda _i: self.refresh_engines())
-        self.engine_menu.connect("show", lambda _m: self.refresh_engines())
+        self.engine_items = {}
         self.refresh_engines()
+        # Never rebuild a submenu while the shell is showing it (that made the
+        # Speech engine menu come up empty). Instead poll gently and only touch
+        # what actually changed.
+        GLib.timeout_add_seconds(5, self.poll_menus)
         for item in (self.status_item, self.toggle_item, self.mic_item,
                      self.engine_item,
                      Gtk.SeparatorMenuItem(), quit_item):
@@ -90,49 +93,70 @@ class Tray:
         self.ind.set_menu(menu)
         self.set_state("off")
 
+    def poll_menus(self):
+        self.refresh_mics()
+        self.refresh_engines()
+        return True
+
     def refresh_mics(self):
-        """Rebuild the Microphone submenu from the inputs present right now."""
-        for child in self.mic_menu.get_children():
-            self.mic_menu.remove(child)
+        """Rebuild the Microphone submenu only when the set of inputs changed;
+        otherwise just move the selection."""
         mics = stconfig.list_microphones()
         current = stconfig.effective_source()
-        group = None
-        entries = []
-        if len(mics) > 1:
-            entries.append((None, "System default"))
-        entries += mics
-        if not entries:
-            none = Gtk.MenuItem(label="No microphone found")
-            none.set_sensitive(False)
-            self.mic_menu.append(none)
-        for name, label in entries:
-            item = Gtk.RadioMenuItem.new_with_label_from_widget(group, label)
-            group = group or item
+        sig = tuple(n for n, _ in mics)
+        if sig != self._mic_sig:
+            self._mic_sig = sig
+            self._mic_items = {}
+            for child in self.mic_menu.get_children():
+                self.mic_menu.remove(child)
+            group = None
+            entries = ([(None, "System default")] if len(mics) > 1 else []) + mics
+            if not entries:
+                none = Gtk.MenuItem(label="No microphone found")
+                none.set_sensitive(False)
+                self.mic_menu.append(none)
+            for name, label in entries:
+                item = Gtk.RadioMenuItem.new_with_label_from_widget(group, label)
+                group = group or item
+                item.connect("toggled", self.on_mic_toggled, name)
+                self.mic_menu.append(item)
+                self._mic_items[name] = item
+            self.mic_menu.show_all()
+        self._updating = True
+        for name, item in self._mic_items.items():
             # one mic: it is always the selection; several: the saved one
-            item.set_active(name == current if len(mics) > 1 else True)
-            item.connect("toggled", self.on_mic_toggled, name)
-            self.mic_menu.append(item)
-        self.mic_menu.show_all()
+            want = True if len(mics) <= 1 else (name == current)
+            if item.get_active() != want:
+                item.set_active(want)
+        self._updating = False
 
     def refresh_engines(self):
-        """Offline always; online entries are greyed out until an API key exists."""
-        for child in self.engine_menu.get_children():
-            self.engine_menu.remove(child)
+        """Items are created once; labels / greyed-out / selection updated in place."""
+        if not self.engine_items:
+            group = None
+            for eng, label in stconfig.ENGINES:
+                item = Gtk.RadioMenuItem.new_with_label_from_widget(group, label)
+                group = group or item
+                item.connect("toggled", self.on_engine_toggled, eng)
+                self.engine_menu.append(item)
+                self.engine_items[eng] = item
+            self.engine_menu.show_all()
         current = stconfig.effective_engine()
-        group = None
+        self._updating = True
         for eng, label in stconfig.ENGINES:
+            item = self.engine_items[eng]
             ok = stconfig.engine_available(eng)
-            item = Gtk.RadioMenuItem.new_with_label_from_widget(
-                group, label if ok else f"{label} (no API key)")
-            group = group or item
-            item.set_sensitive(ok)
-            item.set_active(eng == current)
-            item.connect("toggled", self.on_engine_toggled, eng)
-            self.engine_menu.append(item)
-        self.engine_menu.show_all()
+            text = label if ok else f"{label} (no API key)"
+            if item.get_label() != text:
+                item.set_label(text)
+            if item.get_sensitive() != ok:
+                item.set_sensitive(ok)
+            if item.get_active() != (eng == current):
+                item.set_active(eng == current)
+        self._updating = False
 
     def on_engine_toggled(self, item, eng):
-        if item.get_active():
+        if item.get_active() and not self._updating:
             stconfig.save_engine(eng)
 
     def show_info(self, text):
@@ -145,7 +169,7 @@ class Tray:
         return False
 
     def on_mic_toggled(self, item, name):
-        if item.get_active():
+        if item.get_active() and not self._updating:
             stconfig.save_source(name)
 
     def set_state(self, state, detail=""):
