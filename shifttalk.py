@@ -168,8 +168,10 @@ def spawn_recorder():
             cmd += ["--target", mic]
         cmd.append(rec_path)
     else:
+        # --latency-msec matters: with parecord's default buffering, SIGINT
+        # discards the unflushed buffer and the LAST ~1-2 s of speech is lost.
         cmd = ["parecord", "--rate=16000", "--channels=1",
-               "--format=s16le", "--file-format=wav"]
+               "--format=s16le", "--file-format=wav", "--latency-msec=20"]
         if mic:
             cmd.append(f"--device={mic}")
         cmd.append(rec_path)

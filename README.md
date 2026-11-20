@@ -52,13 +52,18 @@ Right Shift used normally (for capital letters) is unaffected.
 | `install.sh` | One-shot installer. |
 | `restart.sh` | Restart the tray from a desktop terminal. |
 
-## Audio timing (why the first words used to go missing)
+## Audio timing (why the last words used to go missing)
 
-Hardware mics take about 0.25 s to start delivering audio after the recorder opens,
-and recording used to start only after the 0.5 s hold, so the first words fell in a gap.
-Now recording starts at the Right Shift *press* (thrown away if you let go before the
-chime, or hit another key), the recorder keeps running 0.3 s after the stop tap, and
-0.4 s of silence is padded around the clip because Whisper drops abrupt first words.
+`parecord`'s default buffering is large, and when it is stopped (SIGINT) it throws away
+whatever is still in the buffer: a 5 s recording came back as ~3.8 s, so the **last 1-2
+seconds of speech were lost**. Measured by recording the mic and the (lossless) speaker
+monitor together while playing beeps. Fix: `parecord --latency-msec=20`, and the
+recorder also keeps running `TAIL_GRACE` (0.3 s) after the stop tap. (PipeWire's
+`pw-record` path, used where PipeWire is running, is not measured/changed.)
+
+Recording also starts at the Right Shift *press* (thrown away if you let go before the
+chime or hit another key), and 0.4 s of silence is padded around the clip because
+Whisper tends to drop abrupt first/last words.
 
 ## Requirements and caveats
 
