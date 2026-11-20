@@ -10,6 +10,7 @@ NEED=()
 python3 -c "import venv, ensurepip" 2>/dev/null || NEED+=(python3-venv)
 python3 -c "import gi; gi.require_version('AyatanaAppIndicator3','0.1')" 2>/dev/null \
     || NEED+=(python3-gi gir1.2-ayatanaappindicator3-0.1)
+python3 -c "import evdev" 2>/dev/null || NEED+=(python3-evdev)
 command -v pactl >/dev/null || command -v pw-dump >/dev/null || NEED+=(pulseaudio-utils)
 command -v pw-record >/dev/null || command -v parecord >/dev/null || NEED+=(pipewire-bin)
 if [ ${#NEED[@]} -gt 0 ]; then
@@ -21,9 +22,18 @@ fi
 
 echo "==> [2/6] Keyboard access..."
 if [ -w /dev/uinput ] && [ -r /dev/input/event0 ]; then
-    echo "    already have access (e.g. via plugdev), skipping input group"
+    echo "    already have access (e.g. via plugdev or the input group), nothing to do"
 else
-    sudo usermod -aG input "$USER"
+    # raw keyboard access = `input` group; typing = /dev/uinput writable by that group
+    id -nG "$USER" | tr ' ' '\n' | grep -qx input || sudo usermod -aG input "$USER"
+    if [ "$(stat -c '%G %a' /dev/uinput 2>/dev/null)" != "input 660" ]; then
+        echo "    /dev/uinput is not group-accessible; adding a udev rule"
+        echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' \
+            | sudo tee /etc/udev/rules.d/80-shifttalk-uinput.rules >/dev/null
+        sudo udevadm control --reload
+        sudo udevadm trigger --name-match=uinput
+    fi
+    echo "    (the input group takes effect at your next login; until then Start asks once for a password)"
 fi
 
 echo "==> [3/6] Stopping any running copy..."
