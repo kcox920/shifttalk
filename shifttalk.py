@@ -10,6 +10,7 @@ Prints "PID n" and "STATE x" lines on stdout for the tray utility.
 """
 import asyncio
 import os
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -64,6 +65,9 @@ def use_pipewire():
     Checked lazily and only cached on success, so starting before the audio
     server is up (early at login) cannot lock in the wrong backend."""
     global _pipewire
+    if _pipewire is None and not shutil.which("pactl"):
+        # No PulseAudio tools at all (e.g. Ubuntu 26.04 with only pipewire-bin)
+        _pipewire = bool(shutil.which("pw-record"))
     if _pipewire is None:
         try:
             out = subprocess.run(["pactl", "info"], capture_output=True,
@@ -163,7 +167,7 @@ def spawn_recorder():
     mic = stconfig.effective_source()   # None = system default
     if use_pipewire():
         cmd = ["pw-record", "--rate", "16000", "--channels", "1",
-               "--format", "s16"]
+               "--format", "s16", "--latency", "20ms"]
         if mic:
             cmd += ["--target", mic]
         cmd.append(rec_path)

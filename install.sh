@@ -10,7 +10,7 @@ NEED=()
 python3 -c "import venv, ensurepip" 2>/dev/null || NEED+=(python3-venv)
 python3 -c "import gi; gi.require_version('AyatanaAppIndicator3','0.1')" 2>/dev/null \
     || NEED+=(python3-gi gir1.2-ayatanaappindicator3-0.1)
-command -v pactl >/dev/null || NEED+=(pulseaudio-utils)
+command -v pactl >/dev/null || command -v pw-dump >/dev/null || NEED+=(pulseaudio-utils)
 command -v pw-record >/dev/null || command -v parecord >/dev/null || NEED+=(pipewire-bin)
 if [ ${#NEED[@]} -gt 0 ]; then
     echo "    installing: ${NEED[*]} (asks for your sudo password)"

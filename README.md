@@ -58,8 +58,9 @@ Right Shift used normally (for capital letters) is unaffected.
 whatever is still in the buffer: a 5 s recording came back as ~3.8 s, so the **last 1-2
 seconds of speech were lost**. Measured by recording the mic and the (lossless) speaker
 monitor together while playing beeps. Fix: `parecord --latency-msec=20`, and the
-recorder also keeps running `TAIL_GRACE` (0.3 s) after the stop tap. (PipeWire's
-`pw-record` path, used where PipeWire is running, is not measured/changed.)
+recorder also keeps running `TAIL_GRACE` (0.3 s) after the stop tap. PipeWire's
+`pw-record` (measured on Ubuntu 26.04) only lost 0.01-0.08 s; it now also gets `--latency 20ms`.
+On PipeWire-only systems (no `pactl`) the mic list comes from `pw-dump` and chimes from `pw-play`.
 
 Recording also starts at the Right Shift *press* (thrown away if you let go before the
 chime or hit another key), and 0.4 s of silence is padded around the clip because

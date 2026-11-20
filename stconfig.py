@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 
 CONFIG_PATH = os.path.join(
@@ -25,8 +26,29 @@ def _pactl(*args):
                           timeout=5).stdout
 
 
+def _list_microphones_pw():
+    """PipeWire-only systems (no pactl): Audio/Source nodes from pw-dump."""
+    try:
+        out = subprocess.run(["pw-dump"], capture_output=True, text=True,
+                             timeout=5).stdout
+        nodes = json.loads(out)
+    except Exception:  # noqa: BLE001
+        return []
+    mics = []
+    for o in nodes:
+        if o.get("type") != "PipeWire:Interface:Node":
+            continue
+        props = o.get("info", {}).get("props", {})
+        if props.get("media.class") == "Audio/Source" and props.get("node.name"):
+            mics.append((props["node.name"],
+                         props.get("node.description") or props["node.name"]))
+    return mics
+
+
 def list_microphones():
     """[(source_name, human description)] for real inputs (no monitors)."""
+    if not shutil.which("pactl"):
+        return _list_microphones_pw()
     mics = []
     name = None
     try:
